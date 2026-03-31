@@ -1,0 +1,38 @@
+# Variables d'environnement
+.env
+webapp/.env
+.results.env
+
+# Dépendances Node.js (Webapp)
+webapp/node_modules/
+webapp/npm-debug.log
+webapp/yarn-error.log
+webapp/yarn-debug.log*
+
+# Donnees des conteneurs Docker (Runtime / Volumes)
+/servers/
+/velocity_data/
+/secrets/
+
+# Dossiers spécifiques de tests ou non nécessaires au repo
+/pterodactyl/
+/send/
+
+# Fichiers volumineux (Archives, backups, mondes)
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.bak
+*.jar
+
+# Fichiers spécifiques au système d'exploitation et aux IDE
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.log
+
+# Dossiers temporaires
+/tmp/

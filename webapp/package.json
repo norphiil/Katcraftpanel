@@ -1,0 +1,23 @@
+{
+  "name": "katcraftpanel",
+  "version": "1.0.0",
+  "description": "KatCraftPanel - Minecraft Server Management Dashboard",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "express": "^4.21.0",
+    "express-session": "^1.18.0",
+    "ws": "^8.18.0",
+    "dockerode": "^4.0.2",
+    "rcon-client": "^4.2.4",
+    "multer": "^1.4.5-lts.1",
+    "@iarna/toml": "^2.2.5",
+    "cookie-parser": "^1.4.6",
+    "archiver": "^7.0.1",
+    "googleapis": "^140.0.1",
+    "node-cron": "^3.0.3"
+  }
+}
