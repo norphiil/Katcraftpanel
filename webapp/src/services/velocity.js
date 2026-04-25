@@ -70,7 +70,10 @@ function rebuildVelocityConfig(serverList) {
   // Add actual servers from the database/list
   serverList.forEach(server => {
     const serverName = server.name;
-    const containerAddress = `${server.containerName || `mc-${serverName}`}:25565`;
+    const containerName = server.containerName || `mc-${serverName}`;
+    // Use the server's configured port (from labels) or default to 25565
+    const serverPort = server.labels?.['katcraftpanel.server-port'] || 25565;
+    const containerAddress = `${containerName}:${serverPort}`;
 
     // Add to servers section
     config.servers[serverName] = containerAddress;
