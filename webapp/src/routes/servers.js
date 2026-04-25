@@ -5,8 +5,11 @@ const path = require('path');
 const { requireAuth } = require('../middleware/auth');
 const dockerService = require('../services/docker');
 const velocityService = require('../services/velocity');
-const autoserverService = require('../services/autoserver');
+
 const { scheduleBackups } = require('../services/backup');
+const configUpdater = require('../services/config-updater');
+const autoserverService = require('../services/autoserver');
+const syncService = require('../services/sync-service');
 
 router.use(requireAuth);
 
@@ -53,7 +56,8 @@ router.post('/', async (req, res) => {
             enableCommandBlock, allowFlight, pvp, spawnProtection,
             autostart, rconPassword, customEnv,
             startupDelay, shutdownDelay, autoShutdownDelay,
-            timezone, whitelist, enableWhitelist } = req.body;
+            timezone, whitelist, enableWhitelist,
+            rconPort, serverPort } = req.body;
 
     if (!name) return res.status(400).json({ error: 'Server name is required' });
 
@@ -76,19 +80,70 @@ router.post('/', async (req, res) => {
       motd, maxPlayers, viewDistance, seed, ops,
       enableCommandBlock, allowFlight, pvp, spawnProtection,
       autostart, rconPassword, customEnv, timezone,
-      whitelist, enableWhitelist
+      whitelist, enableWhitelist,
+      rconPort, serverPort
     });
 
-    // Add to velocity config
-    const containerAddress = `${result.containerName}:${result.serverPort}`;
-    velocityService.addServerToVelocity(sanitized, containerAddress);
+    // Rebuild velocity.toml with only current servers from database
+    const allServers = await dockerService.listServers();
+    velocityService.rebuildVelocityConfig(allServers);
 
-    // Add to autoserver config
-    autoserverService.addServerToAutoServer(sanitized, {
-      startupDelay: startupDelay || 30,
-      shutdownDelay: shutdownDelay || 10,
-      autoShutdownDelay: autoShutdownDelay || 0
+    // Rebuild autoserver config.toml with only current servers
+    autoserverService.rebuildAutoServerConfig(
+      allServers.map(s => ({
+        name: s.name,
+        startupDelay: startupDelay || 30,
+        shutdownDelay: shutdownDelay || 10,
+        autoShutdownDelay: autoShutdownDelay || 0
+      })),
+      {
+        startupDelay: startupDelay || 30,
+        shutdownDelay: shutdownDelay || 10,
+        autoShutdownDelay: autoShutdownDelay || 0
+      }
+    );
+
+    // Update Minecraft configuration files with explicit ports
+    await configUpdater.updateAllConfig(sanitized, {
+      motd, maxPlayers, difficulty, mode,
+      viewDistance, seed, ops,
+      enableWhitelist, whitelist,
+      rconPort: result.rconPort,
+      serverPort: result.serverPort,
+      rconPassword,
+      spawnProtection
     });
+
+    // Reload Velocity to apply new server config
+    // Velocity uses RCON on port 25577 internally (exposed as 25568 externally)
+    try {
+      // Use the velocity data path to write velocity.toml directly
+      // The Velocity container will reload on next connection attempt
+      console.log('[Servers] Velocity configuration updated, restart required for full reload');
+
+      // Try to get the Velocity container and check if it's running
+      const docker = require('dockerode')();
+      const containers = await docker.listContainers({
+        all: true,
+        filters: { name: ['^/velocity$'] }
+      });
+
+      if (containers.length > 0) {
+        const proxyContainer = docker.getContainer(containers[0].Id);
+        const info = await proxyContainer.inspect();
+
+        if (info.State.Running) {
+          // Velocity doesn't support RCON reload without restart
+          // Just note that a restart is needed
+          await proxyContainer.restart({ t: 5 });
+          console.log('[Servers] Velocity restarted to apply configuration');
+        }
+      }
+    } catch (err) {
+      console.error('[Servers] Error reloading Velocity:', err.message);
+      // Fallback to syncService reload
+      await syncService.reloadVelocity();
+    }
 
     // Initialize backup schedule
     scheduleBackups(sanitized);
@@ -139,11 +194,19 @@ router.delete('/:name', async (req, res) => {
     // Remove Docker container
     await dockerService.removeServer(serverName);
 
-    // Remove from velocity config
-    velocityService.removeServerFromVelocity(serverName);
+    // Rebuild velocity.toml with remaining servers
+    const allServers = await dockerService.listServers();
+    velocityService.rebuildVelocityConfig(allServers);
 
-    // Remove from autoserver config
-    autoserverService.removeServerFromAutoServer(serverName);
+    // Rebuild autoserver config.toml with remaining servers
+    autoserverService.rebuildAutoServerConfig(
+      allServers.map(s => ({
+        name: s.name,
+        startupDelay: 30,
+        shutdownDelay: 10,
+        autoShutdownDelay: 0
+      }))
+    );
 
     // Optionally delete server data
     if (deleteData) {

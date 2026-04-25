@@ -19,6 +19,9 @@ const mcApiRoutes = require('./src/routes/mc-api');
 // Services
 const { initBackupScheduler } = require('./src/services/backup');
 
+// Health sync for configuration consistency
+const { initHealthSync } = require('./src/services/health-sync');
+
 const app = express();
 const server = http.createServer(app);
 

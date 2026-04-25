@@ -54,6 +54,22 @@ const ServerCreate = {
               </div>
             </div>
 
+            <h3 class="card-title mt-16 mb-16">Network & Ports</h3>
+            
+            <div class="form-row">
+              <div class="form-group">
+                <label for="server-game-port">Game Port</label>
+                <input type="number" id="server-game-port" name="serverPort" value="25565" min="1024" max="65535">
+                <div class="form-help">Port for Minecraft client connections (default: 25565)</div>
+              </div>
+              
+              <div class="form-group">
+                <label for="server-rcon-port">RCON Port</label>
+                <input type="number" id="server-rcon-port" name="rconPort" value="25575" min="1024" max="65535">
+                <div class="form-help">Port for remote console access (default: 25575)</div>
+              </div>
+            </div>
+
             <h3 class="card-title mt-16 mb-16">Resources & AutoServer</h3>
             
             <div class="form-row">
@@ -153,6 +169,8 @@ const ServerCreate = {
         
         // Handle checkboxes (if unchecked, they don't appear in formData)
         data.pvp = form.pvp.checked ? 'true' : 'false';
+        data.serverPort = parseInt(data.serverPort);
+        data.rconPort = parseInt(data.rconPort);
         data.enableCommandBlock = form.enableCommandBlock.checked;
         data.allowFlight = form.allowFlight.checked;
         

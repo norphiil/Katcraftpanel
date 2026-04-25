@@ -33,6 +33,60 @@ function writeVelocityConfig(config) {
 }
 
 /**
+ * Rebuild velocity.toml from scratch based on actual server list
+ * This ensures no stale data (like example.com domains) remains
+ */
+function rebuildVelocityConfig(serverList) {
+  console.log('[Velocity] Rebuilding velocity.toml from scratch...');
+
+  // Base configuration template
+  const config = {
+    'config-version': '2.7',
+    general: {
+      bind: '0.0.0.0:25577',
+      motd: '<#09add3>A Velocity Server',
+      show_max_players: 500,
+      online_mode: true,
+      force_key_authentication: true,
+      prevent_client_proxy_connections: false,
+      player_info_forwarding_mode: 'NONE',
+      show_motd: true,
+      announce_forge: false,
+      kick_existing_players: false,
+      ping_passthrough: 'DISABLED',
+      enable_player_address_logging: true,
+      forward_remote_address: false,
+      forced_hosts: {},
+      query: {
+        enabled: false,
+        port: 25577,
+        version: '1.21.10'
+      }
+    },
+    servers: {},
+    servers_try: []
+  };
+
+  // Add actual servers from the database/list
+  serverList.forEach(server => {
+    const serverName = server.name;
+    const containerAddress = `${server.containerName || `mc-${serverName}`}:25565`;
+
+    // Add to servers section
+    config.servers[serverName] = containerAddress;
+
+    // Add to try list
+    config.servers_try.push(serverName);
+  });
+
+  // Write the rebuilt configuration
+  writeVelocityConfig(config);
+  console.log(`[Velocity] velocity.toml rebuilt with ${serverList.length} servers`);
+
+  return true;
+}
+
+/**
  * Add a server entry to velocity.toml [servers] section
  * Format: name = "container-name:25565"
  */
@@ -95,6 +149,7 @@ function getVelocityServers() {
 module.exports = {
   readVelocityConfig,
   writeVelocityConfig,
+  rebuildVelocityConfig,
   addServerToVelocity,
   removeServerFromVelocity,
   getVelocityServers,

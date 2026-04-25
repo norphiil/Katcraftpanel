@@ -167,7 +167,7 @@ async function createServer(serverName, options = {}) {
 
   const rconPassword = options.rconPassword || process.env.DEFAULT_RCON_PASSWORD || 'minecraft';
   const rconPort = options.rconPort || 25575;
-  const serverPort = 25565;
+  const serverPort = options.serverPort || 25565;
 
   // Environment variables
   const env = [
@@ -234,6 +234,7 @@ async function createServer(serverName, options = {}) {
       'katcraftpanel.version': options.version || 'LATEST',
       'katcraftpanel.rcon-port': String(rconPort),
       'katcraftpanel.rcon-password': rconPassword,
+      'katcraftpanel.server-port': String(serverPort),
       'katcraftpanel.autostart': String(options.autostart || false),
       'katcraftpanel.memory': options.memory || '2G',
     },

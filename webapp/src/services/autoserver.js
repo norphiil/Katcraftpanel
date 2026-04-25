@@ -48,12 +48,52 @@ function writeAutoServerConfig(config) {
 }
 
 /**
+ * Rebuild autoserver config.toml from scratch based on actual server list
+ * This ensures no stale data remains
+ */
+function rebuildAutoServerConfig(serverList, defaultOptions = {}) {
+  console.log('[AutoServer] Rebuilding config.toml from scratch...');
+
+  const config = {
+    checkForUpdates: true,
+    messages: {
+      prefix: '<gray>[<green>KatCraft</green>]</gray> ',
+      starting: 'Server is starting up, please wait...',
+      failed: 'Server failed to start. Please try again later.',
+      notify: 'Server is ready! Connecting you now...'
+    },
+    servers: {}
+  };
+
+  // Add actual servers from the database/list
+  serverList.forEach(server => {
+    const serverName = server.name;
+    const containerName = `mc-${serverName}`;
+
+    config.servers[serverName] = {
+      start: `docker start ${containerName}`,
+      stop: `docker stop ${containerName}`,
+      workingDirectory: '/data',
+      startupDelay: server.startupDelay || defaultOptions.startupDelay || 30,
+      shutdownDelay: server.shutdownDelay || defaultOptions.shutdownDelay || 10,
+      autoShutdownDelay: server.autoShutdownDelay || defaultOptions.autoShutdownDelay || 0,
+      remote: false
+    };
+  });
+
+  writeAutoServerConfig(config);
+  console.log(`[AutoServer] config.toml rebuilt with ${serverList.length} servers`);
+
+  return true;
+}
+
+/**
  * Add a server to AutoServer config
  * Uses docker start/stop commands since MC servers run as Docker containers
  */
 function addServerToAutoServer(serverName, options = {}) {
   const config = readAutoServerConfig();
-  
+
   if (!config.servers) {
     config.servers = {};
   }
@@ -110,6 +150,7 @@ function getAutoServerServerConfig(serverName) {
 module.exports = {
   readAutoServerConfig,
   writeAutoServerConfig,
+  rebuildAutoServerConfig,
   addServerToAutoServer,
   removeServerFromAutoServer,
   updateAutoServerSettings,
