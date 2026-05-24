@@ -251,8 +251,14 @@ async function createServer(serverName, options = {}) {
     'EULA=TRUE',
     `TYPE=${options.type || 'PAPER'}`,
     `VERSION=${options.version || 'LATEST'}`,
-    `MAX_MEMORY=${options.memory || '4G'}`,
-    `INIT_MEMORY=${options.memory || '4G'}`,
+    // Memory: use MEMORY for simple mode, INIT_MEMORY/MAX_MEMORY for advanced
+    ...(options.initMemory || options.maxMemory
+      ? [
+          ...(options.initMemory ? [`INIT_MEMORY=${options.initMemory}`] : []),
+          ...(options.maxMemory ? [`MAX_MEMORY=${options.maxMemory}`] : [])
+        ]
+      : [`MEMORY=${options.memory || '4G'}`]
+    ),
     'ONLINE_MODE=false',
     `RCON_PASSWORD=${rconPassword}`,
     `RCON_PORT=${rconPort}`,
@@ -263,6 +269,19 @@ async function createServer(serverName, options = {}) {
     `MOTD=${options.motd || `KatCraft - ${displayName(name)}`}`,
     `SERVER_PORT=${serverPort}`,
     'LOG_TIMESTAMP=true',
+    // JVM Options
+    ...(options.jvmOpts ? [`JVM_OPTS=${options.jvmOpts}`] : []),
+    ...(options.jvmXxOpts ? [`JVM_XX_OPTS=${options.jvmXxOpts}`] : []),
+    ...(options.jvmDdOpts ? [`JVM_DD_OPTS=${options.jvmDdOpts}`] : []),
+    // Optimization flags
+    ...(options.useAikarFlags ? ['USE_AIKAR_FLAGS=true'] : []),
+    ...(options.useMeowiceFlags ? ['USE_MEOWICE_FLAGS=true'] : []),
+    // JMX
+    ...(options.enableJmx ? [
+      'ENABLE_JMX=true',
+      `JMX_HOST=${options.jmxHost || ''}`,
+      `JMX_PORT=${options.jmxPort || '7091'}`
+    ] : []),
   ];
 
   if (options.enableCommandBlock) env.push('ENABLE_COMMAND_BLOCK=true');
