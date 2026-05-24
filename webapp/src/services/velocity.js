@@ -39,47 +39,69 @@ function writeVelocityConfig(config) {
 function rebuildVelocityConfig(serverList) {
   console.log('[Velocity] Rebuilding velocity.toml from scratch...');
 
-  // Base configuration template
+  // Base configuration template - Corrected for Velocity 2.7 standards
   const config = {
     'config-version': '2.7',
-    general: {
-      bind: '0.0.0.0:25577',
-      motd: '<#09add3>A Velocity Server',
-      show_max_players: 500,
-      online_mode: true,
-      force_key_authentication: true,
-      prevent_client_proxy_connections: false,
-      player_info_forwarding_mode: 'NONE',
-      show_motd: true,
-      announce_forge: false,
-      kick_existing_players: false,
-      ping_passthrough: 'DISABLED',
-      enable_player_address_logging: true,
-      forward_remote_address: false,
-      forced_hosts: {},
-      query: {
-        enabled: false,
-        port: 25577,
-        version: '1.21.10'
-      }
+    // Root level properties (No [general] section)
+    bind: '0.0.0.0:25565',
+    motd: '<#09add3>A Velocity Server',
+    'show-max-players': 500,
+    'online-mode': true,
+    'force-key-authentication': true,
+    'prevent-client-proxy-connections': false,
+    'player-info-forwarding-mode': 'modern',
+    'announce-forge': false,
+    'kick-existing-players': false,
+    'ping-passthrough': 'DISABLED',
+    'enable-player-address-logging': true,
+    
+    // Servers section
+    servers: {
+      try: []
     },
-    servers: {},
-    servers_try: []
+
+    // Optional but recommended sections to prevent warnings
+    'forced-hosts': {},
+    
+    advanced: {
+      'compression-threshold': 256,
+      'compression-level': -1,
+      'login-ratelimit': 3000,
+      'connection-timeout': 5000,
+      'read-timeout': 30000,
+      'haproxy-protocol': false,
+      'tcp-fast-open': false,
+      'bungee-plugin-message-channel': true,
+      'show-ping-requests': false,
+      'failover-on-unexpected-server-disconnect': true,
+      'announce-proxy-commands': true,
+      'log-command-executions': false,
+      'log-player-connections': true,
+      'accepts-transfers': false
+    },
+
+    // Query must be at the root, not inside general
+    query: {
+      enabled: false,
+      port: 25565,
+      map: 'Velocity',
+      'show-plugins': false
+    }
   };
 
   // Add actual servers from the database/list
   serverList.forEach(server => {
     const serverName = server.name;
     const containerName = server.containerName || `mc-${serverName}`;
-    // Use the server's configured port (from labels) or default to 25565
-    const serverPort = server.labels?.['katcraftpanel.server-port'] || 25565;
+    // Use the server's configured port (direct property, from labels, or default to 25565)
+    const serverPort = server.serverPort || server.labels?.['katcraftpanel.server-port'] || 25565;
     const containerAddress = `${containerName}:${serverPort}`;
 
     // Add to servers section
     config.servers[serverName] = containerAddress;
 
     // Add to try list
-    config.servers_try.push(serverName);
+    config.servers.try.push(serverName);
   });
 
   // Write the rebuilt configuration

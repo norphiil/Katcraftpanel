@@ -5,7 +5,65 @@ const backupService = require('../services/backup');
 
 router.use(requireAuth);
 
-// Get backup config for a server
+// Get global backup status
+router.get('/status', (req, res) => {
+  try {
+    const status = backupService.getBackupStatus();
+    res.json(status);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get backup history
+router.get('/history', (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 50;
+    const history = backupService.getBackupHistory(limit);
+    res.json(history);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get global backup config
+router.get('/config', (req, res) => {
+  try {
+    const config = backupService.readGlobalConfig();
+    res.json(config);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update global backup config
+router.put('/config', (req, res) => {
+  try {
+    backupService.writeGlobalConfig(req.body);
+    backupService.initGitBackupScheduler();
+    res.json({ message: 'Backup configuration updated' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Trigger manual backup (runs async, returns immediately)
+router.post('/now', async (req, res) => {
+  try {
+    const type = req.body.type || 'manual';
+    // Don't await — launch in background, return immediately
+    backupService.performBackup(type).then(result => {
+      console.log(`[Backup] Manual backup completed: ${result.success ? (result.commitHash ? result.commitHash.substring(0, 7) : result.note) : `FAILED — ${result.error}`}`);
+    }).catch(err => {
+      console.error('[Backup] Manual backup error:', err.message);
+    });
+    res.json({ started: true, message: 'Backup started. Check /api/backups/status for progress.' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Per-server: get backup config (exclude patterns)
 router.get('/:server/config', (req, res) => {
   try {
     const config = backupService.readBackupConfig(req.params.server);
@@ -15,33 +73,37 @@ router.get('/:server/config', (req, res) => {
   }
 });
 
-// Update backup config
+// Per-server: update backup config (exclude patterns)
 router.put('/:server/config', (req, res) => {
   try {
     backupService.writeBackupConfig(req.params.server, req.body);
-    backupService.scheduleBackups(req.params.server);
-    res.json({ message: 'Backup config updated' });
+    res.json({ message: 'Server backup config updated' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// Trigger manual backup
+// Per-server: trigger manual backup (now triggers global backup, runs in background)
 router.post('/:server/now', async (req, res) => {
   try {
     const type = req.body.type || 'manual';
-    const result = await backupService.performBackup(req.params.server, type);
-    res.json(result);
+    backupService.performBackup(type).then(result => {
+      console.log(`[Backup] Manual backup completed: ${result.success ? (result.commitHash ? result.commitHash.substring(0, 7) : result.note) : `FAILED — ${result.error}`}`);
+    }).catch(err => {
+      console.error('[Backup] Manual backup error:', err.message);
+    });
+    res.json({ started: true, message: 'Backup started. Check /api/backups/status for progress.' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// List backups
-router.get('/:server/history', async (req, res) => {
+// Per-server: history (delegated to global)
+router.get('/:server/history', (req, res) => {
   try {
-    const backups = await backupService.listBackups(req.params.server);
-    res.json(backups);
+    const limit = parseInt(req.query.limit) || 50;
+    const history = backupService.getBackupHistory(limit);
+    res.json(history);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

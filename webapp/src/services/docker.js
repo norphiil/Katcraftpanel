@@ -1,11 +1,14 @@
 const Dockerode = require('dockerode');
 const path = require('path');
+const fs = require('fs');
 
 const docker = new Dockerode({ socketPath: '/var/run/docker.sock' });
 
 const NETWORK_NAME = 'katcraft_net';
-const MC_IMAGE = 'itzg/minecraft-server:latest';
+const MC_IMAGE = 'itzg/minecraft-server:java21';
 const CONTAINER_PREFIX = 'mc-';
+const SERVERS_PATH = '/app/servers';
+const SERVER_META_FILE = '.katcraft-server.json';
 
 /**
  * Sanitize a server name to be safe for Docker container names and config keys.
@@ -61,7 +64,7 @@ async function ensureNetwork() {
 }
 
 /**
- * List all managed MC server containers
+ * List all managed MC server containers, enriched with filesystem servers
  */
 async function listServers() {
   const containers = await docker.listContainers({
@@ -71,16 +74,90 @@ async function listServers() {
     }
   });
 
-  return containers.map(c => ({
-    name: c.Names[0].replace('/' + CONTAINER_PREFIX, ''),
-    containerName: c.Names[0].replace('/', ''),
-    state: c.State,
-    status: c.Status,
-    image: c.Image,
-    ports: c.Ports,
-    labels: c.Labels,
-    created: c.Created
-  }));
+  const dockerServerMap = new Map();
+  containers.forEach(c => {
+    const name = c.Names[0].replace('/' + CONTAINER_PREFIX, '');
+    dockerServerMap.set(name, {
+      name,
+      containerName: c.Names[0].replace('/', ''),
+      state: c.State,
+      status: c.Status,
+      image: c.Image,
+      ports: c.Ports,
+      labels: c.Labels,
+      created: c.Created
+    });
+  });
+
+  // Start with filesystem servers as base
+  const fsServers = scanFilesystemServers();
+  const fsServerMap = new Map();
+  fsServers.forEach(s => fsServerMap.set(s.name, s));
+
+  const merged = [];
+
+  // Add filesystem servers, merging with Docker state
+  for (const [name, fsInfo] of fsServerMap) {
+    const dockerInfo = dockerServerMap.get(name);
+    const base = {
+      name,
+      displayName: displayName(name),
+      containerName: fsInfo.containerName || containerName(name),
+      type: fsInfo.type || 'CUSTOM',
+      version: fsInfo.version || 'LATEST',
+      memory: fsInfo.memory || '2G',
+      serverPort: fsInfo.serverPort || fsInfo.labels?.['katcraftpanel.server-port'] || 25565,
+      rconPort: fsInfo.rconPort || 25575,
+      autostart: fsInfo.autostart || false,
+      labels: {
+        'katcraftpanel.managed': 'true',
+        'katcraftpanel.server': name,
+        'katcraftpanel.type': fsInfo.type || 'CUSTOM',
+        'katcraftpanel.version': fsInfo.version || 'LATEST',
+        'katcraftpanel.rcon-port': String(fsInfo.rconPort || 25575),
+        'katcraftpanel.server-port': String(fsInfo.serverPort || 25565),
+        'katcraftpanel.autostart': String(fsInfo.autostart || false),
+        'katcraftpanel.memory': fsInfo.memory || '2G'
+      },
+      _source: 'filesystem'
+    };
+    if (dockerInfo) {
+      Object.assign(base, {
+        state: dockerInfo.state,
+        status: dockerInfo.status,
+        image: dockerInfo.image,
+        ports: dockerInfo.ports,
+        created: dockerInfo.created,
+        _source: 'both'
+      });
+    } else {
+      base.state = 'absent';
+      base.status = 'No container';
+      base.image = MC_IMAGE;
+      base.ports = [];
+      base.created = null;
+    }
+    merged.push(base);
+  }
+
+  // Add Docker-only servers (container exists but no filesystem directory)
+  for (const [name, dockerInfo] of dockerServerMap) {
+    if (!fsServerMap.has(name)) {
+      merged.push({
+        ...dockerInfo,
+        displayName: displayName(name),
+        serverPort: dockerInfo.labels?.['katcraftpanel.server-port'] || 25565,
+        rconPort: dockerInfo.labels?.['katcraftpanel.rcon-port'] || 25575,
+        type: dockerInfo.labels?.['katcraftpanel.type'] || 'PAPER',
+        version: dockerInfo.labels?.['katcraftpanel.version'] || 'LATEST',
+        memory: readMemoryFromJvmArgs(name) || dockerInfo.labels?.['katcraftpanel.memory'] || '4G',
+        autostart: dockerInfo.labels?.['katcraftpanel.autostart'] === 'true',
+        _source: 'docker'
+      });
+    }
+  }
+
+  return merged;
 }
 
 /**
@@ -174,8 +251,8 @@ async function createServer(serverName, options = {}) {
     'EULA=TRUE',
     `TYPE=${options.type || 'PAPER'}`,
     `VERSION=${options.version || 'LATEST'}`,
-    `MAX_MEMORY=${options.memory || '2G'}`,
-    `INIT_MEMORY=${options.initMemory || '1G'}`,
+    `MAX_MEMORY=${options.memory || '4G'}`,
+    `INIT_MEMORY=${options.memory || '4G'}`,
     'ONLINE_MODE=false',
     `RCON_PASSWORD=${rconPassword}`,
     `RCON_PORT=${rconPort}`,
@@ -244,8 +321,12 @@ async function createServer(serverName, options = {}) {
       Binds: [
         `${hostServerDataPath}:/data`
       ],
-      RestartPolicy: { Name: 'no' },
-      NetworkMode: NETWORK_NAME
+      RestartPolicy: { Name: 'no' }
+    },
+    NetworkingConfig: {
+      EndpointsConfig: {
+        [NETWORK_NAME]: {}
+      }
     }
   };
 
@@ -267,6 +348,9 @@ async function createServer(serverName, options = {}) {
  * Start a server container
  */
 async function startServer(serverName) {
+  // Ensure network exists before starting
+  await ensureNetwork();
+  
   const container = docker.getContainer(containerName(serverName));
   await container.start();
 }
@@ -283,6 +367,9 @@ async function stopServer(serverName) {
  * Restart a server container
  */
 async function restartServer(serverName) {
+  // Ensure network exists before restarting
+  await ensureNetwork();
+  
   const container = docker.getContainer(containerName(serverName));
   await container.restart({ t: 15 });
 }
@@ -372,6 +459,144 @@ function stripDockerHeaders(buffer) {
   return lines.join('');
 }
 
+/**
+ * Scan the servers directory and read .katcraft-server.json for each server
+ */
+function scanFilesystemServers() {
+  if (!fs.existsSync(SERVERS_PATH)) return [];
+
+  const entries = fs.readdirSync(SERVERS_PATH, { withFileTypes: true })
+    .filter(d => d.isDirectory() && !d.name.startsWith('.'));
+
+  return entries.map(e => {
+    const meta = readServerMeta(e.name);
+    const memory = readMemoryFromJvmArgs(e.name) || '4G';
+    return {
+      name: e.name,
+      displayName: displayName(e.name),
+      containerName: containerName(e.name),
+      memory,
+      ...meta,
+      _source: 'filesystem'
+    };
+  });
+}
+
+/**
+ * Read server metadata from .katcraft-server.json
+ */
+function readServerMeta(serverName) {
+  const metaPath = path.join(SERVERS_PATH, serverName, SERVER_META_FILE);
+  if (!fs.existsSync(metaPath)) return defaultServerMeta(serverName);
+  try {
+    return JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+  } catch {
+    return defaultServerMeta(serverName);
+  }
+}
+
+/**
+ * Write server metadata to .katcraft-server.json
+ */
+function writeServerMeta(serverName, meta) {
+  const serverDir = path.join(SERVERS_PATH, serverName);
+  if (!fs.existsSync(serverDir)) fs.mkdirSync(serverDir, { recursive: true });
+  const metaPath = path.join(serverDir, SERVER_META_FILE);
+  fs.writeFileSync(metaPath, JSON.stringify(meta, null, 2), 'utf8');
+}
+
+/**
+ * Default metadata for a server without an explicit config file
+ * Memory is read from user_jvm_args.txt, not stored here.
+ */
+function defaultServerMeta(serverName) {
+  return {
+    name: serverName,
+    type: 'CUSTOM',
+    version: 'LATEST',
+    serverPort: 25565,
+    rconPort: 25575,
+    rconPassword: process.env.DEFAULT_RCON_PASSWORD || 'minecraft',
+    autostart: false,
+    difficulty: '2',
+    mode: '0'
+  };
+}
+
+const DEFAULT_JVM_ARGS = [
+  '-XX:+UnlockExperimentalVMOptions',
+  '-XX:+UseG1GC',
+  '-XX:G1NewSizePercent=20',
+  '-XX:G1ReservePercent=20',
+  '-XX:MaxGCPauseMillis=50',
+  '-XX:G1HeapRegionSize=16M',
+  '-XX:+UseZGC',
+  '-XX:+ZGenerational'
+];
+
+/**
+ * Read memory allocated from user_jvm_args.txt (-Xmx value)
+ */
+function readMemoryFromJvmArgs(serverName) {
+  try {
+    const filePath = path.join(SERVERS_PATH, serverName, 'user_jvm_args.txt');
+    if (!fs.existsSync(filePath)) return null;
+    const content = fs.readFileSync(filePath, 'utf8');
+    const match = content.match(/-Xmx(\d+G)/);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Write user_jvm_args.txt, updating -Xms/-Xmx or creating with defaults.
+ * Xms and Xmx are always kept equal.
+ */
+function writeUserJvmArgs(serverName, memoryGb) {
+  const serverDir = path.join(SERVERS_PATH, serverName);
+  if (!fs.existsSync(serverDir)) fs.mkdirSync(serverDir, { recursive: true });
+  const filePath = path.join(serverDir, 'user_jvm_args.txt');
+
+  const mem = memoryGb.replace(/[^0-9]/g, '');
+  const xmsLine = `-Xms${mem}G`;
+  const xmxLine = `-Xmx${mem}G`;
+
+  let lines;
+  if (fs.existsSync(filePath)) {
+    lines = fs.readFileSync(filePath, 'utf8')
+      .split('\n')
+      .map(l => l.trim())
+      .filter(Boolean);
+  } else {
+    lines = [];
+  }
+
+  // Update or add Xms/Xmx (always same value)
+  const xmsIdx = lines.findIndex(l => l.startsWith('-Xms'));
+  const xmxIdx = lines.findIndex(l => l.startsWith('-Xmx'));
+
+  if (xmsIdx >= 0) lines[xmsIdx] = xmsLine;
+  else lines.unshift(xmsLine);
+
+  if (xmxIdx >= 0) lines[xmxIdx] = xmxLine;
+  else {
+    // Insert after Xms
+    const insertAt = lines.findIndex(l => l.startsWith('-Xms'));
+    lines.splice(insertAt + 1, 0, xmxLine);
+  }
+
+  // Ensure default GC args are present if missing
+  for (const arg of DEFAULT_JVM_ARGS) {
+    const base = arg.split('=')[0];
+    if (!lines.some(l => l.startsWith(base))) {
+      lines.push(arg);
+    }
+  }
+
+  fs.writeFileSync(filePath, lines.join('\n') + '\n', 'utf8');
+}
+
 module.exports = {
   docker,
   sanitizeName,
@@ -388,6 +613,12 @@ module.exports = {
   getServerLogs,
   streamServerLogs,
   ensureNetwork,
+  scanFilesystemServers,
+  readServerMeta,
+  writeServerMeta,
+  defaultServerMeta,
+  readMemoryFromJvmArgs,
+  writeUserJvmArgs,
   NETWORK_NAME,
   CONTAINER_PREFIX
 };

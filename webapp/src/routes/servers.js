@@ -74,6 +74,25 @@ router.post('/', async (req, res) => {
       fs.mkdirSync(serverDir, { recursive: true });
     }
 
+    // Write server metadata file (memory is stored in user_jvm_args.txt)
+    dockerService.writeServerMeta(sanitized, {
+      name: sanitized,
+      type: type || 'PAPER',
+      version: version || 'LATEST',
+      serverPort: serverPort || 25565,
+      rconPort: rconPort || 25575,
+      rconPassword: rconPassword || process.env.DEFAULT_RCON_PASSWORD || 'minecraft',
+      autostart: autostart || false,
+      difficulty: difficulty || '2',
+      mode: mode || '0',
+      motd: motd || `KatCraft - ${sanitized}`,
+      maxPlayers: maxPlayers || 20,
+      viewDistance: viewDistance || 10
+    });
+
+    // Write user_jvm_args.txt with default JVM args and the allocated memory
+    dockerService.writeUserJvmArgs(sanitized, memory || '4G');
+
     // Create Docker container
     const result = await dockerService.createServer(sanitized, {
       type, version, memory, initMemory, difficulty, mode,
@@ -213,6 +232,12 @@ router.delete('/:name', async (req, res) => {
       const serverDir = path.join('/app/servers', serverName);
       if (fs.existsSync(serverDir)) {
         fs.rmSync(serverDir, { recursive: true, force: true });
+      }
+    } else {
+      // Remove metadata file even if keeping data
+      const metaPath = path.join('/app/servers', serverName, '.katcraft-server.json');
+      if (fs.existsSync(metaPath)) {
+        fs.unlinkSync(metaPath);
       }
     }
 

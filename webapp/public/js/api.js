@@ -120,6 +120,21 @@ const API = {
   getMcModes() { return this.request('/api/mc/modes'); },
 
   // Backups
+  getBackupStatus() { return this.request('/api/backups/status'); },
+  getBackupHistory(limit) { return this.request(`/api/backups/history?limit=${limit || 50}`); },
+  getBackupGlobalConfig() { return this.request('/api/backups/config'); },
+  updateBackupGlobalConfig(config) {
+    return this.request('/api/backups/config', {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    });
+  },
+  triggerBackupNow(type) {
+    return this.request('/api/backups/now', {
+      method: 'POST',
+      body: JSON.stringify({ type })
+    });
+  },
   getBackupConfig(server) { return this.request(`/api/backups/${server}/config`); },
   updateBackupConfig(server, config) {
     return this.request(`/api/backups/${server}/config`, {
@@ -133,7 +148,7 @@ const API = {
       body: JSON.stringify({ type })
     });
   },
-  getBackupHistory(server) { return this.request(`/api/backups/${server}/history`); },
+  getBackupHistoryForServer(server) { return this.request(`/api/backups/${server}/history`); },
 
   // Config
   getVelocityConfig() { return this.request('/api/config/velocity'); },

@@ -1,9 +1,11 @@
-FROM node:20-alpine
+FROM node:22-alpine
 
-# Install Docker CLI for executing docker commands from within the container
-RUN apk add --no-cache docker-cli shadow bash
+RUN apk add --no-cache docker-cli shadow bash git openssh-client
 
 WORKDIR /app
+
+# SSH setup for git push
+RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
 
 # Copy package files and install dependencies
 COPY package.json ./

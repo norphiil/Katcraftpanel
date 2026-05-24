@@ -17,7 +17,7 @@ const configRoutes = require('./src/routes/config');
 const mcApiRoutes = require('./src/routes/mc-api');
 
 // Services
-const { initGitBackupScheduler } = require('./src/services/backup');
+const { initGitBackupScheduler } = require('./services/backup');
 
 // Health sync for configuration consistency
 const { initHealthSync } = require('./src/services/health-sync');
@@ -103,7 +103,7 @@ wss.on('connection', (ws, request) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`[KatCraftPanel] Server running on port ${PORT}`);
-  
+
   // Initialize backup scheduler
   initGitBackupScheduler();
 

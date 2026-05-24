@@ -82,7 +82,7 @@ class ConfigUpdater {
 # Server settings
 motd=${motd}
 max-players=${maxPlayers}
-max-world-size=-1
+max-world-size=29999984
 allow-nether=true
 enable-query=false
 query.port=25565

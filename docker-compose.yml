@@ -8,10 +8,15 @@ services:
     environment:
       TYPE: VELOCITY
       MINECRAFT_VERSION: 1.21.10
+      SKIP_DOWNLOAD_DEFAULTS: "true"
+      JVM_OPTS: "-Dvelocity.packet-decode-logging=true -Dvelocity.max-plugin-message-payload-size=5242880"
     volumes:
-      - ./velocity_data:/server/
+      - ./velocity_data:/server
+      - ./config:/config
     networks:
       - katcraft_net
+    depends_on:
+      - katcraftpanel
     restart: unless-stopped
 
   katcraftpanel:
@@ -26,14 +31,13 @@ services:
     volumes:
       - ./servers:/app/servers
       - ./velocity_data:/app/velocity_data
-      - ./secrets:/app/secrets:ro
       - /var/run/docker.sock:/var/run/docker.sock
+      - ./secrets/backup_deploy_key:/root/.ssh/id_ed25519:ro
+      - ./secrets/ssh_known_hosts:/root/.ssh/known_hosts:ro
     networks:
       - katcraft_net
       - traefik_default
     restart: unless-stopped
-    depends_on:
-      - proxy
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=traefik_default"
@@ -42,7 +46,6 @@ services:
 
 networks:
   katcraft_net:
-    driver: bridge
     name: katcraft_net
   traefik_default:
     external: true

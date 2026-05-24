@@ -39,16 +39,15 @@ class SyncService {
   }
 
   /**
-   * Obtenir la liste des serveurs depuis Docker
+   * Obtenir la liste des serveurs depuis le système de fichiers
    */
   async getDockerServers() {
     const dockerService = require('./docker');
-    const containers = await dockerService.listServers();
-    
-    // Retourner une liste d'objets avec nom et port
-    return containers.map(c => ({
-      name: c.name,
-      serverPort: c.labels?.['katcraftpanel.server-port'] || 25565
+    const fsServers = dockerService.scanFilesystemServers();
+
+    return fsServers.map(s => ({
+      name: s.name,
+      serverPort: s.serverPort || 25565
     }));
   }
 
@@ -79,7 +78,8 @@ class SyncService {
       
       const servers = fs.readdirSync(this.SERVERS_PATH);
       return servers.filter(file => {
-        // Ignorer les fichiers non-dossiers
+        // Ignorer les fichiers non-dossiers et dossiers cachés (.git, etc.)
+        if (file.startsWith('.')) return false;
         const fullPath = path.join(this.SERVERS_PATH, file);
         return fs.statSync(fullPath).isDirectory();
       });
@@ -99,7 +99,8 @@ class SyncService {
     velocityService.rebuildVelocityConfig(
       dockerServers.map(s => ({
         name: s.name,
-        containerName: s.containerName
+        containerName: s.containerName,
+        serverPort: s.serverPort
       }))
     );
   }
@@ -108,29 +109,13 @@ class SyncService {
    * Synchroniser le système de fichiers avec les serveurs Docker
    */
   async syncFileSystem(dockerServers) {
-    const configUpdater = require('./config-updater');
-    
     for (const serverInfo of dockerServers) {
       const serverName = serverInfo.name;
       const serverDir = path.join(this.SERVERS_PATH, serverName);
-      
+
       if (!fs.existsSync(serverDir)) {
         fs.mkdirSync(serverDir, { recursive: true });
         console.log(`[SyncService] Created directory for ${serverName}`);
-      }
-    }
-    
-    // Supprimer les serveurs du filesystem qui n'existent plus dans Docker
-    const filesystemServers = await this.getFileSystemServers();
-    for (const serverName of filesystemServers) {
-      const dockerServer = dockerServers.find(s => s.name === serverName);
-      
-      if (!dockerServer) {
-        const serverDir = path.join(this.SERVERS_PATH, serverName);
-        if (fs.existsSync(serverDir)) {
-          fs.rmSync(serverDir, { recursive: true, force: true });
-          console.log(`[SyncService] Removed directory for ${serverName}`);
-        }
       }
     }
   }
@@ -143,14 +128,15 @@ class SyncService {
     const dockerService = require('./docker');
     const velocityService = require('./velocity');
 
-    // Récupérer la liste actuelle des serveurs
-    const dockerServers = await dockerService.listServers();
+    // Récupérer la liste actuelle des serveurs depuis le système de fichiers
+    const fsServers = dockerService.scanFilesystemServers();
 
     // Rebuild velocity.toml proprement
     velocityService.rebuildVelocityConfig(
-      dockerServers.map(s => ({
+      fsServers.map(s => ({
         name: s.name,
-        containerName: s.containerName
+        containerName: s.containerName || `mc-${s.name}`,
+        serverPort: s.serverPort || 25565
       }))
     );
   }
