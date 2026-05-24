@@ -89,6 +89,7 @@ const ServerDetail = {
         <button class="tab" data-tab="console">Console</button>
         <button class="tab" data-tab="files">File Manager</button>
         <button class="tab" data-tab="backups">Backups</button>
+        <button class="tab" data-tab="configuration">Configuration</button>
         <button class="tab text-error" data-tab="danger">Danger Zone</button>
       </div>
 
@@ -115,7 +116,8 @@ const ServerDetail = {
       <div class="tab-content" id="tab-console"></div>
       <div class="tab-content" id="tab-files"></div>
       <div class="tab-content" id="tab-backups"></div>
-      
+      <div class="tab-content" id="tab-configuration"></div>
+
       <div class="tab-content" id="tab-danger">
         <div class="card border-error bg-error-dim">
           <h3 class="text-error mb-16">Danger Zone</h3>
@@ -164,6 +166,10 @@ const ServerDetail = {
         else if (tab.getAttribute('data-tab') === 'backups' && !this.backupsLoaded) {
           this.backupsLoaded = true;
           BackupConfig.init(target, this.serverName);
+        }
+        else if (tab.getAttribute('data-tab') === 'configuration' && !this.configLoaded) {
+          this.configLoaded = true;
+          ServerConfig.init(target, this.serverName);
         }
       };
     });
