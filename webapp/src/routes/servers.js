@@ -288,4 +288,89 @@ router.get('/:name/logs', async (req, res) => {
   }
 });
 
+// Get server configuration from metadata
+router.get('/:name/config', (req, res) => {
+  try {
+    const config = dockerService.readServerMeta(req.params.name);
+    res.json(config);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Update server configuration (save only, no restart)
+router.put('/:name/config', (req, res) => {
+  try {
+    const serverName = req.params.name;
+    const config = req.body;
+
+    // Validate ports
+    if (config.serverPort !== undefined) {
+      const port = parseInt(config.serverPort);
+      if (isNaN(port) || port < 1024 || port > 65535) {
+        return res.status(400).json({ error: 'Server port must be between 1024 and 65535' });
+      }
+    }
+    if (config.rconPort !== undefined) {
+      const port = parseInt(config.rconPort);
+      if (isNaN(port) || port < 1024 || port > 65535) {
+        return res.status(400).json({ error: 'RCON port must be between 1024 and 65535' });
+      }
+    }
+
+    dockerService.writeServerMeta(serverName, config);
+    const saved = dockerService.readServerMeta(serverName);
+    res.json(saved);
+  } catch (err) {
+    console.error('[Servers] Error saving config:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Apply saved configuration by recreating the container
+router.post('/:name/apply-config', async (req, res) => {
+  try {
+    const serverName = req.params.name;
+    const meta = dockerService.readServerMeta(serverName);
+
+    // Stop and remove existing container
+    try {
+      const container = dockerService.docker.getContainer(dockerService.containerName(serverName));
+      const info = await container.inspect();
+      if (info.State.Running) {
+        await container.stop({ t: 15 });
+      }
+      await container.remove({ force: true });
+    } catch (err) {
+      if (err.statusCode !== 404) throw err;
+    }
+
+    // Recreate with metadata as options
+    const result = await dockerService.createServer(serverName, meta);
+
+    // Start the new container
+    await dockerService.startServer(serverName);
+
+    // Rebuild velocity and autoserver configs
+    const allServers = await dockerService.listServers();
+    velocityService.rebuildVelocityConfig(allServers);
+    autoserverService.rebuildAutoServerConfig(
+      allServers.map(s => ({
+        name: s.name,
+        startupDelay: 30,
+        shutdownDelay: 10,
+        autoShutdownDelay: 0
+      }))
+    );
+
+    res.json({
+      message: 'Server restarted with new configuration',
+      ...result
+    });
+  } catch (err) {
+    console.error('[Servers] Error applying config:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = router;
