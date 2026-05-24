@@ -37,6 +37,16 @@ const API = {
   stopServer(name) { return this.request(`/api/servers/${name}/stop`, { method: 'POST' }); },
   restartServer(name) { return this.request(`/api/servers/${name}/restart`, { method: 'POST' }); },
   getServerLogs(name, tail) { return this.request(`/api/servers/${name}/logs?tail=${tail || 200}`); },
+  getServerConfig(name) { return this.request(`/api/servers/${name}/config`); },
+  updateServerConfig(name, config) {
+    return this.request(`/api/servers/${name}/config`, {
+      method: 'PUT',
+      body: JSON.stringify(config)
+    });
+  },
+  applyServerConfig(name) {
+    return this.request(`/api/servers/${name}/apply-config`, { method: 'POST' });
+  },
 
   // Files
   getFiles(server, path) { return this.request(`/api/files/${server}?path=${encodeURIComponent(path || '')}`); },
