@@ -363,6 +363,25 @@ router.post('/:name/apply-config', async (req, res) => {
       }))
     );
 
+    // Restart Velocity to pick up the new config
+    try {
+      const docker = new (require('dockerode'))({ socketPath: '/var/run/docker.sock' });
+      const containers = await docker.listContainers({
+        all: true,
+        filters: { name: ['^/minecraft-proxy'] }
+      });
+      if (containers.length > 0) {
+        const proxyContainer = docker.getContainer(containers[0].Id);
+        const info = await proxyContainer.inspect();
+        if (info.State.Running) {
+          await proxyContainer.restart({ t: 5 });
+          console.log('[Servers] Velocity restarted to apply configuration');
+        }
+      }
+    } catch (err) {
+      console.error('[Servers] Error restarting Velocity:', err.message);
+    }
+
     res.json({
       message: 'Server restarted with new configuration',
       ...result
